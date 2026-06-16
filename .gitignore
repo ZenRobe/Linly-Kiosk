@@ -1,7 +1,4 @@
 __pycache__/
 .vibe/
-.qoder/
 videos/*.mp4
 .env
-docs/vibe-coding-skill.md
-docs/开发方案.md
