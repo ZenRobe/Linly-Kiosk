@@ -1,0 +1,20 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: Q0DeR-MaG1C-BrAnCh-Fo2-NoN-GiT-Or-No-C0MmIt
+exported_at: "2026-06-16T07:32:33Z"
+modules:
+    "":
+        dir_name: 数字人问答展示系统
+        title: 数字人问答展示系统
+        scope:
+            - README.md
+            - app.py
+            - configs/
+            - docs/
+            - configs\kiosk_config.py
+            - docs\开发方案.md
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

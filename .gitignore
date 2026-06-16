@@ -1,0 +1,4 @@
+__pycache__/
+.vibe/
+videos/*.mp4
+.env
