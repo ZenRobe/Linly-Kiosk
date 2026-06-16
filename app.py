@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import json
 
 # 修复 Windows 控制台编码问题
 if sys.platform == 'win32':
@@ -16,6 +17,10 @@ from configs import kiosk_config as config
 # 视频资源路径
 IDLE_VIDEO = config.VIDEOS["idle"]
 TALKING_VIDEO = config.VIDEOS["talking"]
+
+# 问题库（JSON 格式供前端 JS 使用）
+ALL_QUESTIONS_JS = json.dumps(config.QUESTION_POOL, ensure_ascii=False)
+DISPLAY_COUNT = 6  # 每次显示6个问题（左3右3）
 
 # ============================================
 # CSS 样式
@@ -146,8 +151,8 @@ footer,
 .loading-spinner {
     width: 60px;
     height: 60px;
-    border: 5px solid rgba(255,255,255,0.3);
-    border-top-color: #667eea;
+    border: 5px solid rgba(255,255,255,0.1);
+    border-top-color: #2563EB;
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
@@ -171,12 +176,13 @@ footer,
     min-width: 240px !important;
     max-height: 80vh !important;
     overflow-y: auto !important;
-    background: rgba(20, 20, 40, 0.75) !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
+    background: rgba(8, 12, 32, 0.88) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
     border-radius: 16px !important;
-    padding: 20px !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
+    padding: 24px 20px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04) !important;
     pointer-events: auto !important;
 }
 
@@ -190,38 +196,50 @@ footer,
     right: 30px !important;
 }
 
-/* 问题按钮 */
+/* ============ 面板标题 ============ */
+.panel-title {
+    font-size: 1.15rem !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    padding-bottom: 14px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    letter-spacing: 0.08em !important;
+    text-align: center !important;
+}
+
+/* ============ 问题按钮 ============ */
 .q-btn {
     width: 100% !important;
     padding: 14px 16px !important;
-    margin: 8px 0 !important;
+    margin: 6px 0 !important;
     font-size: 1.05rem !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
-    color: #eee !important;
-    border-radius: 12px !important;
-    transition: all 0.3s ease !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    color: rgba(255, 255, 255, 0.75) !important;
+    border-radius: 8px !important;
+    transition: opacity 0.2s ease, background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, color 0.25s ease !important;
     text-align: left !important;
-    min-height: 48px !important;
+    min-height: 52px !important;
     cursor: pointer !important;
     white-space: normal !important;
-    line-height: 1.4 !important;
+    line-height: 1.5 !important;
 }
 
+/* hover - 深海蓝光效 */
 .q-btn:hover {
-    background: rgba(102,126,234,0.6) !important;
-    color: white !important;
-    border-color: rgba(102,126,234,0.8) !important;
-    box-shadow: 0 4px 20px rgba(102,126,234,0.4);
-    transform: translateX(6px);
+    background: rgba(30, 64, 175, 0.18) !important;
+    color: #ffffff !important;
+    border-color: rgba(37, 99, 235, 0.35) !important;
+    box-shadow: 0 4px 20px rgba(30, 64, 175, 0.25), inset 0 0 0 1px rgba(37, 99, 235, 0.1);
 }
 
+/* 选中态 - 微蓝底 */
 .q-btn.active {
-    background: rgba(102,126,234,0.8) !important;
-    color: white !important;
-    border-color: #667eea !important;
-    box-shadow: 0 4px 25px rgba(102,126,234,0.5) !important;
-    transform: translateX(6px);
+    background: rgba(30, 64, 175, 0.22) !important;
+    color: #ffffff !important;
+    border-color: rgba(37, 99, 235, 0.35) !important;
+    box-shadow: 0 4px 24px rgba(30, 64, 175, 0.3), inset 0 0 0 1px rgba(37, 99, 235, 0.12) !important;
 }
 
 /* ============ 底部信息 ============ */
@@ -241,14 +259,69 @@ footer,
 
 /* 滚动条美化 */
 .question-panel::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
 }
 .question-panel::-webkit-scrollbar-track {
     background: transparent;
 }
 .question-panel::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.2);
+    background: rgba(201, 168, 76, 0.25);
     border-radius: 2px;
+}
+.question-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(201, 168, 76, 0.45);
+}
+
+/* ============ 答案字幕条 ============ */
+.answer-caption {
+    position: absolute;
+    bottom: 10%;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    z-index: 15;
+    background: rgba(8, 12, 32, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(201, 168, 76, 0.2);
+    border-radius: 14px;
+    padding: 18px 36px;
+    max-width: 68vw;
+    min-width: 40vw;
+    text-align: center;
+    opacity: 1;
+    transition: opacity 0.35s ease, transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+    pointer-events: none;
+}
+.answer-caption.updating {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+}
+.caption-question {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: rgba(201, 168, 76, 0.85);
+    margin-bottom: 8px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(201, 168, 76, 0.15);
+    padding-bottom: 8px;
+}
+.caption-answer {
+    font-size: 1.15rem;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+}
+.caption-answer .answer-seg {
+    display: inline;
+    opacity: 0;
+    animation: segFadeIn 0.4s ease forwards;
+}
+.caption-answer .answer-seg:first-child { animation-delay: 0.05s; }
+
+@keyframes segFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 """
 
@@ -260,6 +333,79 @@ VIDEO_JS = """
 var waveInterval = null;
 var currentMode = 'idle';
 var idleTimer = null;
+
+/* ============ 问题管理 ============ */
+var ALL_QUESTIONS = {all_questions};
+var currentQuestions = [];
+var previousQuestions = [];
+
+/* 随机选取 n 个不重复问题（尽量与上一轮不重复）*/
+function pickRandomQuestions(n) {{
+    var pool = ALL_QUESTIONS.slice();
+    var result = [];
+    // 优先排除上一轮的问题
+    var fresh = pool.filter(function(q) {{ return previousQuestions.indexOf(q.id) === -1; }});
+    if (fresh.length < n) fresh = pool;
+    // Fisher-Yates 部分洗牌
+    for (var i = 0; i < n && i < fresh.length; i++) {{
+        var j = i + Math.floor(Math.random() * (fresh.length - i));
+        var tmp = fresh[i]; fresh[i] = fresh[j]; fresh[j] = tmp;
+        result.push(fresh[i]);
+    }}
+    return result;
+}}
+
+/* 刷新按钮文字（左3 + 右3，带淡入淡出）*/
+function refreshQuestionButtons() {{
+    currentQuestions = pickRandomQuestions({display_count});
+    previousQuestions = currentQuestions.map(function(q) {{ return q.id; }});
+    var btns = document.querySelectorAll('.q-btn');
+    // 淡出
+    btns.forEach(function(b) {{ b.style.opacity = '0'; }});
+    setTimeout(function() {{
+        for (var i = 0; i < btns.length && i < currentQuestions.length; i++) {{
+            btns[i].textContent = currentQuestions[i].question;
+        }}
+        // 淡入
+        setTimeout(function() {{
+            btns.forEach(function(b) {{ b.style.opacity = '1'; }});
+        }}, 50);
+    }}, 200);
+}}
+
+/* 点击问题按钮 */
+function onQuestionClick(btnIndex) {{
+    if (btnIndex >= currentQuestions.length) return;
+    var q = currentQuestions[btnIndex];
+    showCaption(q.question, q.answer);
+    switchToTalking();
+    // 记录点击的问题 id，刷新时保留它
+    var clickedId = q.id;
+    var btns = document.querySelectorAll('.q-btn');
+    btns.forEach(function(b) {{ b.classList.remove('active'); }});
+    if (btns[btnIndex]) btns[btnIndex].classList.add('active');
+    // 淡出 + 刷新
+    btns.forEach(function(b) {{ b.style.opacity = '0'; }});
+    setTimeout(function() {{
+        // 生成新6题，确保包含点击的那个
+        var pool = ALL_QUESTIONS.slice();
+        var rest = pool.filter(function(x) {{ return x.id !== clickedId; }});
+        // Fisher-Yates shuffle rest
+        for (var i = rest.length - 1; i > 0; i--) {{
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = rest[i]; rest[i] = rest[j]; rest[j] = tmp;
+        }}
+        currentQuestions = [q].concat(rest.slice(0, 5));
+        previousQuestions = currentQuestions.map(function(x) {{ return x.id; }});
+        // 保持点击的问题在同一个按钮位置
+        for (var i = 0; i < btns.length && i < currentQuestions.length; i++) {{
+            btns[i].textContent = currentQuestions[i].question;
+        }}
+        setTimeout(function() {{
+            btns.forEach(function(b) {{ b.style.opacity = '1'; }});
+        }}, 50);
+    }}, 200);
+}}
 
 /* 切换到回答模式 - 播放 talking.mp4 */
 function switchToTalking() {{
@@ -327,8 +473,10 @@ function switchToIdle() {{
         idleTimer = null;
     }}
 
-    // 移除按钮高亮
+    // 移除按钮高亮 + 刷新问题列表
     document.querySelectorAll('.q-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+    resetCaption();
+    refreshQuestionButtons();
 
     backVideo.src = '/gradio_api/file={idle_video}';
     backVideo.load();
@@ -388,6 +536,54 @@ function stopWaveAnimation() {{
     var waveOverlay = document.getElementById('waveOverlay');
     if (waveOverlay) waveOverlay.classList.remove('active');
 }}
+
+/* 显示答案字幕（分段交错渐显）*/
+function showCaption(question, answer) {{
+    var caption = document.getElementById('answerCaption');
+    var qEl = document.getElementById('captionQuestion');
+    var aEl = document.getElementById('captionAnswer');
+    // 先淡出
+    if (caption) caption.classList.add('updating');
+    setTimeout(function() {{
+        if (qEl) qEl.textContent = question;
+        if (aEl) {{
+            // 将答案按句子拆分，每句包裹 span 并设延迟
+            var segs = answer.split(/(?<=[。！？；])/);
+            var html = '';
+            for (var i = 0; i < segs.length; i++) {{
+                if (segs[i].trim()) {{
+                    var delay = (i * 0.12).toFixed(2);
+                    html += '<span class="answer-seg" style="animation-delay:' + delay + 's">' + segs[i] + '</span>';
+                }}
+            }}
+            aEl.innerHTML = html || answer;
+        }}
+        if (caption) caption.classList.remove('updating');
+    }}, 200);
+}}
+
+/* 恢复欢迎语 */
+function resetCaption() {{
+    var caption = document.getElementById('answerCaption');
+    var qEl = document.getElementById('captionQuestion');
+    var aEl = document.getElementById('captionAnswer');
+    if (caption) caption.classList.add('updating');
+    setTimeout(function() {{
+        if (qEl) qEl.textContent = '欢迎使用智能问答';
+        if (aEl) aEl.innerHTML = '点击左右两侧问题，开启智慧电力探索之旅';
+        if (caption) caption.classList.remove('updating');
+    }}, 200);
+}}
+
+/* 页面加载：等待 Gradio 渲染完成后初始化 */
+(function initWhenReady() {{
+    var btns = document.querySelectorAll('.q-btn');
+    if (btns.length >= {display_count}) {{
+        refreshQuestionButtons();
+    }} else {{
+        setTimeout(initWhenReady, 150);
+    }}
+}})();
 """.format(
     talking_video=TALKING_VIDEO,
     idle_video=IDLE_VIDEO,
@@ -395,7 +591,9 @@ function stopWaveAnimation() {{
     min_interval=config.WAVE_CONFIG["min_interval"],
     max_interval=config.WAVE_CONFIG["max_interval"],
     auto_return_idle="true" if config.ANSWER_CONFIG["auto_return_idle"] else "false",
-    answer_duration=config.ANSWER_CONFIG["answer_duration"]
+    answer_duration=config.ANSWER_CONFIG["answer_duration"],
+    all_questions=ALL_QUESTIONS_JS,
+    display_count=DISPLAY_COUNT
 )
 
 
@@ -410,30 +608,27 @@ def create_kiosk_app():
         title="数字人问答系统"
     ) as app:
 
-        # 状态变量
-        current_question = gr.State(value=None)
-        current_answer = gr.State(value=None)
-
-        # 顶部标题 - 已移除
-
         # 主内容区（全屏覆盖）
         with gr.Row(elem_classes="main-content"):
 
-            # ==================== 左侧浮动问题面板 ====================
+            # ==================== 左侧浮动问题面板（3个按钮）====================
             with gr.Column(elem_classes=["question-panel", "panel-left"]):
-                left_buttons = []
-                for q in config.PRESET_QUESTIONS["left"]:
+                gr.HTML(f'<div class="panel-title">{config.UI_CONFIG["left_title"]}</div>')
+                for i in range(3):
                     btn = gr.Button(
-                        q["question"],
+                        f"问题 {i+1}",
                         elem_classes="q-btn",
                         variant="secondary"
                     )
-                    left_buttons.append((btn, q))
+                    btn.click(
+                        fn=None,
+                        js=f"() => {{ onQuestionClick({i}); }}"
+                    )
 
             # ==================== 中间视频区域（全屏背景）====================
             with gr.Column():
 
-                # 双缓冲视频容器 + 挥手覆盖层
+                # 双缓冲视频容器 + 挥手覆盖层 + 字幕条
                 gr.HTML(value=f'''
                 <div class="video-container">
                     <video id="videoBack" class="video-layer inactive" autoplay loop muted playsinline>
@@ -446,41 +641,26 @@ def create_kiosk_app():
                     <div id="loadingOverlay" class="loading-overlay hidden">
                         <div class="loading-spinner"></div>
                     </div>
+                    <div id="answerCaption" class="answer-caption">
+                        <div id="captionQuestion" class="caption-question">欢迎使用智能问答</div>
+                        <div id="captionAnswer" class="caption-answer">点击左右两侧问题，开启智慧电力探索之旅</div>
+                    </div>
                 </div>
-                <script>{VIDEO_JS}</script>
                 ''', elem_classes="video-html-wrapper")
 
-            # ==================== 右侧浮动问题面板 ====================
+            # ==================== 右侧浮动问题面板（3个按钮）====================
             with gr.Column(elem_classes=["question-panel", "panel-right"]):
-                right_buttons = []
-                for q in config.PRESET_QUESTIONS["right"]:
+                gr.HTML(f'<div class="panel-title">{config.UI_CONFIG["right_title"]}</div>')
+                for i in range(3):
                     btn = gr.Button(
-                        q["question"],
+                        f"问题 {i+4}",
                         elem_classes="q-btn",
                         variant="secondary"
                     )
-                    right_buttons.append((btn, q))
-
-        # ===== 统一注册事件（所有组件已创建完毕）=====
-        all_buttons = left_buttons + right_buttons
-        for btn, q in all_buttons:
-            btn.click(
-                fn=lambda q=q: (
-                    q["question"],
-                    q.get("answer", ""),
-                ),
-                outputs=[current_question, current_answer]
-            ).then(
-                fn=None,
-                js="""() => {
-    document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
-    var btns = document.querySelectorAll('.q-btn');
-    if (btns[""" + str(all_buttons.index((btn, q))) + """]) {
-        btns[""" + str(all_buttons.index((btn, q))) + """].classList.add('active');
-    }
-    switchToTalking();
-}"""
-            )
+                    btn.click(
+                        fn=None,
+                        js=f"() => {{ onQuestionClick({i + 3}); }}"
+                    )
 
     return app
 
@@ -527,7 +707,7 @@ def main(port=None):
     print(f"📹 待机视频: {IDLE_VIDEO}")
     print(f"📹 回答视频: {TALKING_VIDEO}")
     print(f"👋 挥手动画: {'启用' if config.WAVE_CONFIG['enabled'] else '禁用'}")
-    print(f"📋 问题数量: {len(config.PRESET_QUESTIONS['left']) + len(config.PRESET_QUESTIONS['right'])}")
+    print(f"📋 问题总数: {len(config.QUESTION_POOL)}（每次随机展示{DISPLAY_COUNT}个）")
     print(f"🌐 访问地址: http://localhost:{server_port}")
     print("="*50 + "\n")
 
@@ -540,9 +720,10 @@ def main(port=None):
         share=config.SERVER_CONFIG["share"],
         allowed_paths=[os.path.abspath("videos/")],
         css=KIOSK_CSS,
+        js=VIDEO_JS,  # Gradio 6.x: js 参数移到 launch()
         theme=gr.themes.Monochrome(),
         show_error=True,
-        footer_links=["_"]  # 传递非falsy值，绕过Gradio空列表bug，且不渲染任何链接
+        footer_links=["_"]
     )
 
 
