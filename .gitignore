@@ -1,4 +1,5 @@
 __pycache__/
 .vibe/
 videos/*.mp4
+videos/wave/*.mp4
 .env
