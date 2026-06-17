@@ -11,12 +11,22 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
+# 解析基础路径（开发模式 vs PyInstaller 打包后的 .exe）
+def _get_base_path():
+    """返回应用根目录，兼容 PyInstaller 打包后的临时解压目录"""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = _get_base_path()
+
 import gradio as gr
 from configs import kiosk_config as config
 
-# 视频资源路径
-IDLE_VIDEO = config.VIDEOS["idle"]
-TALKING_VIDEO = config.VIDEOS["talking"]
+# 视频资源路径（绝对路径，开发/打包模式通用）
+IDLE_VIDEO = os.path.join(BASE_DIR, "videos", "idle.mp4").replace("\\", "/")
+TALKING_VIDEO = os.path.join(BASE_DIR, "videos", "talking.mp4").replace("\\", "/")
+VIDEO_DIR = os.path.join(BASE_DIR, "videos")
 
 # 问题库（JSON 格式供前端 JS 使用）
 ALL_QUESTIONS_JS = json.dumps(config.QUESTION_POOL, ensure_ascii=False)
@@ -132,7 +142,7 @@ footer,
     width: 100%;
     height: 100%;
     object-fit: contain;
-    transition: opacity 0.42s ease-in-out;
+    transition: opacity 0.08s ease-out;
 }
 
 .video-layer.active {
@@ -504,7 +514,6 @@ footer,
 VIDEO_JS = """
 var waveInterval = null;
 var currentMode = 'idle';
-var idleTimer = null;
 
 /* ============ 问题管理 ============ */
 var ALL_QUESTIONS = {all_questions};
@@ -579,7 +588,7 @@ function onQuestionClick(btnIndex) {{
     }}, 200);
 }}
 
-/* 切换到回答模式 - 播放 talking.mp4 */
+/* 切换到回答模式 - 播放 talking.mp4（不循环，播完自动切 idle）*/
 function switchToTalking() {{
     var backVideo = document.getElementById('videoBack');
     var frontVideo = document.getElementById('videoFront');
@@ -588,84 +597,101 @@ function switchToTalking() {{
     if (!frontVideo || !backVideo) return;
     currentMode = 'talking';
 
-    // 清除旧的自动回归定时器（重置）
-    if (idleTimer) {{
-        clearTimeout(idleTimer);
-        idleTimer = null;
-    }}
-
-    // 启动自动回归待机定时器
-    var autoReturnIdle = {auto_return_idle};
-    var answerDuration = {answer_duration};
-    if (autoReturnIdle) {{
-        idleTimer = setTimeout(function() {{
-            switchToIdle();
-        }}, answerDuration * 1000);
-    }}
-
     if (loading) loading.classList.remove('hidden');
 
-    // 后台加载回答视频
+    // 后台加载回答视频（不循环，播完自动切待机）
+    backVideo.loop = false;
+    backVideo.onended = null;  // 清除旧事件，避免重复触发
     backVideo.src = '/gradio_api/file={talking_video}';
     backVideo.load();
 
-    backVideo.oncanplay = function() {{
-        // 淡入新视频，淡出旧视频
-        frontVideo.classList.remove('active');
-        frontVideo.classList.add('inactive');
-        backVideo.classList.remove('inactive');
-        backVideo.classList.add('active');
+    backVideo.oncanplaythrough = function() {{
+        // 播完后自动切换到 idle
+        backVideo.onended = function() {{
+            switchToIdle();
+        }};
+
+        // 先开始播放（此时 backVideo 还是透明状态）
         backVideo.play().catch(function(e){{}});
 
+        // 等待首帧渲染后再切换图层（避免闪现空白帧）
+        var swap = function() {{
+            frontVideo.classList.remove('active');
+            frontVideo.classList.add('inactive');
+            backVideo.classList.remove('inactive');
+            backVideo.classList.add('active');
+
+            // 交换层级
+            setTimeout(function() {{
+                frontVideo.src = '';
+                var tempId = frontVideo.id;
+                frontVideo.id = backVideo.id;
+                backVideo.id = tempId;
+            }}, 500);
+
+            // 启动随机挥手动画
+            startWaveAnimation();
+        }};
+
+        // requestVideoFrameCallback: 精确等到首帧渲染（Chrome/Edge）
+        // 降级方案: setTimeout ~40ms ≈ 2 帧
+        if (backVideo.requestVideoFrameCallback) {{
+            backVideo.requestVideoFrameCallback(swap);
+            // 100ms 保险：万一回调没触发
+            setTimeout(function() {{
+                if (backVideo.classList.contains('inactive')) swap();
+            }}, 100);
+        }} else {{
+            setTimeout(swap, 40);
+        }}
+
         setTimeout(function(){{ if (loading) loading.classList.add('hidden'); }}, 300);
-
-        // 交换层级
-        setTimeout(function() {{
-            frontVideo.src = '';
-            var tempId = frontVideo.id;
-            frontVideo.id = backVideo.id;
-            backVideo.id = tempId;
-        }}, 500);
-
-        // 启动随机挥手动画
-        startWaveAnimation();
     }};
 }}
 
-/* 切换到待机模式 - 播放 idle.mp4 */
+/* 切换到待机模式 - 循环播放 idle.mp4 */
 function switchToIdle() {{
     var backVideo = document.getElementById('videoBack');
     var frontVideo = document.getElementById('videoFront');
     currentMode = 'idle';
     stopWaveAnimation();
 
-    // 清除自动回归定时器
-    if (idleTimer) {{
-        clearTimeout(idleTimer);
-        idleTimer = null;
-    }}
-
     // 移除按钮高亮 + 刷新问题列表
     document.querySelectorAll('.q-btn').forEach(function(b) {{ b.classList.remove('active'); }});
     resetCaption();
     refreshQuestionButtons();
 
+    backVideo.loop = true;
     backVideo.src = '/gradio_api/file={idle_video}';
     backVideo.load();
 
-    backVideo.oncanplay = function() {{
-        frontVideo.classList.remove('active');
-        frontVideo.classList.add('inactive');
-        backVideo.classList.remove('inactive');
-        backVideo.classList.add('active');
+    backVideo.oncanplaythrough = function() {{
+        // 先开始播放（此时 backVideo 还是透明状态）
         backVideo.play().catch(function(e){{}});
 
-        setTimeout(function() {{
-            frontVideo.src = '';
-            var tempId = frontVideo.id;
-            frontVideo.id = backVideo.id;
-            backVideo.id = tempId;
-        }}, 500);
+        // 等待首帧渲染后再切换图层
+        var swap = function() {{
+            frontVideo.classList.remove('active');
+            frontVideo.classList.add('inactive');
+            backVideo.classList.remove('inactive');
+            backVideo.classList.add('active');
+
+            setTimeout(function() {{
+                frontVideo.src = '';
+                var tempId = frontVideo.id;
+                frontVideo.id = backVideo.id;
+                backVideo.id = tempId;
+            }}, 500);
+        }};
+
+        if (backVideo.requestVideoFrameCallback) {{
+            backVideo.requestVideoFrameCallback(swap);
+            setTimeout(function() {{
+                if (backVideo.classList.contains('inactive')) swap();
+            }}, 100);
+        }} else {{
+            setTimeout(swap, 40);
+        }}
     }};
 }}
 
@@ -752,6 +778,14 @@ function resetCaption() {{
     var btns = document.querySelectorAll('.q-btn');
     if (btns.length >= {display_count}) {{
         refreshQuestionButtons();
+
+        // 预加载 talking.mp4 到浏览器缓存，后续切换瞬间就绪
+        var preloadVideo = document.createElement('video');
+        preloadVideo.preload = 'auto';
+        preloadVideo.style.display = 'none';
+        preloadVideo.src = '/gradio_api/file={talking_video}';
+        preloadVideo.load();
+        setTimeout(function() {{ document.body.contains(preloadVideo) && preloadVideo.remove(); }}, 3000);
     }} else {{
         setTimeout(initWhenReady, 150);
     }}
@@ -762,8 +796,6 @@ function resetCaption() {{
     wave_videos=config.WAVE_CONFIG["videos"],
     min_interval=config.WAVE_CONFIG["min_interval"],
     max_interval=config.WAVE_CONFIG["max_interval"],
-    auto_return_idle="true" if config.ANSWER_CONFIG["auto_return_idle"] else "false",
-    answer_duration=config.ANSWER_CONFIG["answer_duration"],
     all_questions=ALL_QUESTIONS_JS,
     display_count=DISPLAY_COUNT
 )
@@ -901,7 +933,7 @@ def main(port=None):
         server_name=config.SERVER_CONFIG["host"],
         server_port=server_port,
         share=config.SERVER_CONFIG["share"],
-        allowed_paths=[os.path.abspath("videos/")],
+        allowed_paths=[VIDEO_DIR],
         css=KIOSK_CSS,
         js=VIDEO_JS,  # Gradio 6.x: js 参数移到 launch()
         theme=gr.themes.Monochrome(),
