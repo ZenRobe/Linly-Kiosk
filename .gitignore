@@ -3,3 +3,7 @@ __pycache__/
 videos/*.mp4
 videos/wave/*.mp4
 .env
+
+# PyInstaller 打包产物（不入库，可由 .spec 重新生成）
+build/
+dist/
