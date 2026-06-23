@@ -26,11 +26,15 @@ from configs import kiosk_config as config
 # 视频资源路径（绝对路径，开发/打包模式通用）
 IDLE_VIDEO = os.path.join(BASE_DIR, "videos", "idle.mp4").replace("\\", "/")
 TALKING_VIDEO = os.path.join(BASE_DIR, "videos", "talking.mp4").replace("\\", "/")
+XUNHUAN_VIDEO = os.path.join(BASE_DIR, "videos", "xunhuan.mp4").replace("\\", "/")
+# 讲话配音目录：每题配音文件为 videos/{id}.mp3（如 xq03.mp3），视频 muted，声音由此音频提供。
+# 前端点击问题时按问题 id 动态加载对应配音（音频为播放主时钟，决定回答总时长）。
+SPEAK_AUDIO_DIR = os.path.join(BASE_DIR, "videos").replace("\\", "/")
 VIDEO_DIR = os.path.join(BASE_DIR, "videos")
 
 # 问题库（JSON 格式供前端 JS 使用）
 ALL_QUESTIONS_JS = json.dumps(config.QUESTION_POOL, ensure_ascii=False)
-DISPLAY_COUNT = 6  # 每次显示6个问题（左3右3）
+DISPLAY_COUNT = 8  # 固定显示8个问题（左4右4）
 
 # ============================================
 # CSS 样式
@@ -498,6 +502,91 @@ footer,
     to { opacity: 1; transform: translateY(0); }
 }
 
+.stop-btn {
+    position: fixed;
+    right: 42px;
+    top: 24%;
+    z-index: 61;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-width: 196px;
+    padding: 17px 30px;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    color: rgba(255, 255, 255, 0.97);
+    background: linear-gradient(135deg, rgba(196, 74, 58, 0.90), rgba(150, 42, 33, 0.92));
+    border: 1px solid rgba(255, 186, 168, 0.42);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(170, 48, 38, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 0.32s ease, transform 0.32s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
+}
+
+.stop-btn.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.stop-btn:hover {
+    background: linear-gradient(135deg, rgba(216, 88, 72, 0.96), rgba(176, 54, 44, 0.96));
+    border-color: rgba(200, 137, 43, 0.62);
+    box-shadow: 0 18px 48px rgba(196, 62, 50, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+}
+
+.stop-btn:active {
+    transform: translateY(1px);
+}
+
+/* 图标基类 */
+.stop-btn .btn-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* 暂停图标：两根竖条（默认显示，提示点击会暂停）*/
+.stop-btn .icon-pause::before,
+.stop-btn .icon-pause::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 1px;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.40);
+}
+.stop-btn .icon-pause::before { left: 3px; }
+.stop-btn .icon-pause::after { right: 3px; }
+
+/* 继续图标：三角形（默认隐藏）*/
+.stop-btn .icon-play {
+    display: none;
+    width: 0;
+    height: 0;
+    border-left: 17px solid rgba(255, 255, 255, 0.95);
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    margin-left: 3px;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.40));
+}
+
+/* 已暂停态：切换为"继续"图标 */
+.stop-btn.is-paused .icon-pause { display: none; }
+.stop-btn.is-paused .icon-play { display: inline-block; }
+
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -515,31 +604,43 @@ VIDEO_JS = """
 var waveInterval = null;
 var currentMode = 'idle';
 
-/* ============ 问题管理 ============ */
-var ALL_QUESTIONS = {all_questions};
-var currentQuestions = [];
-var previousQuestions = [];
+// idle 摆臂节奏：idle.mp4 播完后随机停顿 IDLE_PAUSE_MIN~MAX 秒再重播，避免摆臂过于频繁
+var IDLE_PAUSE_MIN = {idle_pause_min};
+var IDLE_PAUSE_MAX = {idle_pause_max};
+var idlePauseTimer = null;
 
-/* 随机选取 n 个不重复问题（尽量与上一轮不重复）*/
-function pickRandomQuestions(n) {{
-    var pool = ALL_QUESTIONS.slice();
-    var result = [];
-    // 优先排除上一轮的问题
-    var fresh = pool.filter(function(q) {{ return previousQuestions.indexOf(q.id) === -1; }});
-    if (fresh.length < n) fresh = pool;
-    // Fisher-Yates 部分洗牌
-    for (var i = 0; i < n && i < fresh.length; i++) {{
-        var j = i + Math.floor(Math.random() * (fresh.length - i));
-        var tmp = fresh[i]; fresh[i] = fresh[j]; fresh[j] = tmp;
-        result.push(fresh[i]);
-    }}
-    return result;
+/* 启动 idle 的"播放-停顿-重播"循环，替代无缝 loop */
+function startIdleLoop(video) {{
+    if (!video) return;
+    video.loop = false;
+    video.onended = function () {{
+        // 播完冻结在最后一帧（站姿），随机停顿后重播
+        var pauseMs = (IDLE_PAUSE_MIN + Math.random() * (IDLE_PAUSE_MAX - IDLE_PAUSE_MIN)) * 1000;
+        clearTimeout(idlePauseTimer);
+        idlePauseTimer = setTimeout(function () {{
+            if (currentMode !== 'idle') return;
+            try {{ video.currentTime = 0; }} catch (e) {{}}
+            video.play().catch(function (e) {{}});
+        }}, pauseMs);
+    }};
 }}
 
-/* 刷新按钮文字（左3 + 右3，带淡入淡出）*/
+/* 停止 idle 循环，清除停顿定时器（切到 talking 时调用）*/
+function stopIdleLoop() {{
+    clearTimeout(idlePauseTimer);
+    idlePauseTimer = null;
+}}
+
+/* ============ 问题管理（固定显示，不随机）============ */
+var ALL_QUESTIONS = {all_questions};
+// 固定 8 题：左栏常见问题 xq01-xq04，右栏热点问答 xq05-xq08
+var FIXED_QUESTION_IDS = ['xq01','xq02','xq03','xq04','xq05','xq06','xq07','xq08'];
+var currentQuestions = FIXED_QUESTION_IDS.map(function(id) {{
+    return ALL_QUESTIONS.find(function(q) {{ return q.id === id; }});
+}}).filter(Boolean);
+
+/* 渲染固定问题到按钮（左4 + 右4，带淡入淡出）*/
 function refreshQuestionButtons() {{
-    currentQuestions = pickRandomQuestions({display_count});
-    previousQuestions = currentQuestions.map(function(q) {{ return q.id; }});
     var btns = document.querySelectorAll('.q-btn');
     // 淡出
     btns.forEach(function(b) {{ b.style.opacity = '0'; }});
@@ -554,41 +655,28 @@ function refreshQuestionButtons() {{
     }}, 200);
 }}
 
-/* 点击问题按钮 */
+/* 点击问题按钮（固定显示：仅高亮当前题并播放回答，不刷新其余按钮）*/
 function onQuestionClick(btnIndex) {{
     if (btnIndex >= currentQuestions.length) return;
     var q = currentQuestions[btnIndex];
+
+    // 按问题 id 加载对应配音（音频为播放主时钟，决定回答总时长）：videos/{{id}}.mp3
+    var speakAudio = document.getElementById('speakAudio');
+    if (speakAudio && q && q.id) {{
+        speakAudio.pause();
+        speakAudio.onended = null;
+        speakAudio.src = '/gradio_api/file={speak_audio_dir}/' + q.id + '.mp3';
+        speakAudio.load();
+    }}
+
     showCaption(q.question, q.answer);
     switchToTalking();
-    // 记录点击的问题 id，刷新时保留它
-    var clickedId = q.id;
     var btns = document.querySelectorAll('.q-btn');
     btns.forEach(function(b) {{ b.classList.remove('active'); }});
     if (btns[btnIndex]) btns[btnIndex].classList.add('active');
-    // 淡出 + 刷新
-    btns.forEach(function(b) {{ b.style.opacity = '0'; }});
-    setTimeout(function() {{
-        // 生成新6题，确保包含点击的那个
-        var pool = ALL_QUESTIONS.slice();
-        var rest = pool.filter(function(x) {{ return x.id !== clickedId; }});
-        // Fisher-Yates shuffle rest
-        for (var i = rest.length - 1; i > 0; i--) {{
-            var j = Math.floor(Math.random() * (i + 1));
-            var tmp = rest[i]; rest[i] = rest[j]; rest[j] = tmp;
-        }}
-        currentQuestions = [q].concat(rest.slice(0, 5));
-        previousQuestions = currentQuestions.map(function(x) {{ return x.id; }});
-        // 保持点击的问题在同一个按钮位置
-        for (var i = 0; i < btns.length && i < currentQuestions.length; i++) {{
-            btns[i].textContent = currentQuestions[i].question;
-        }}
-        setTimeout(function() {{
-            btns.forEach(function(b) {{ b.style.opacity = '1'; }});
-        }}, 50);
-    }}, 200);
 }}
 
-/* 切换到回答模式 - 播放 talking.mp4（不循环，播完自动切 idle）*/
+/* 切换到回答模式 - 播 talking.mp4 一遍，音频未结束则循环 xunhuan.mp4，音频结束切 idle */
 function switchToTalking() {{
     var backVideo = document.getElementById('videoBack');
     var frontVideo = document.getElementById('videoFront');
@@ -596,19 +684,44 @@ function switchToTalking() {{
 
     if (!frontVideo || !backVideo) return;
     currentMode = 'talking';
+    updateStopButton();  // 显示"暂停回答"按钮
+    isPaused = false;    // 新回答从头播放，重置暂停态
+    setStopButtonState(false);
+    stopIdleLoop();  // 清除 idle 摆臂停顿定时器，避免讲话中又触发重播
+
+    // 音频为播放主时钟：播完即切回 idle
+    var speakAudio = document.getElementById('speakAudio');
+    if (speakAudio) {{
+        speakAudio.onended = null;
+        try {{ speakAudio.currentTime = 0; }} catch (e) {{}}
+        speakAudio.onended = function() {{
+            if (currentMode === 'talking') switchToIdle();
+        }};
+        // 在用户点击手势链路内触发播放，避免被浏览器自动播放策略拦截
+        speakAudio.play().catch(function (e) {{}});
+    }}
 
     if (loading) loading.classList.remove('hidden');
 
-    // 后台加载回答视频（不循环，播完自动切待机）
+    // 后台加载回答视频 talking.mp4（不循环，播完切到 xunhuan.mp4 循环填充）
     backVideo.loop = false;
+    backVideo.oncanplaythrough = null;
     backVideo.onended = null;  // 清除旧事件，避免重复触发
     backVideo.src = '/gradio_api/file={talking_video}';
     backVideo.load();
 
     backVideo.oncanplaythrough = function() {{
-        // 播完后自动切换到 idle
+        // talking 播完后：若仍在 talking 模式（音频未结束），切到 xunhuan.mp4 循环填充至音频结束
         backVideo.onended = function() {{
-            switchToIdle();
+            if (currentMode !== 'talking') return;
+            backVideo.loop = true;          // 循环播放 xunhuan.mp4
+            backVideo.onended = null;       // loop 期间不再触发 onended，由音频 onended 收尾
+            backVideo.oncanplaythrough = function() {{
+                backVideo.oncanplaythrough = null;
+                backVideo.play().catch(function(e){{}});
+            }};
+            backVideo.src = '/gradio_api/file={xunhuan_video}';
+            backVideo.load();
         }};
 
         // 先开始播放（此时 backVideo 还是透明状态）
@@ -649,25 +762,47 @@ function switchToTalking() {{
     }};
 }}
 
-/* 切换到待机模式 - 循环播放 idle.mp4 */
-function switchToIdle() {{
+/* 切换到待机模式 - 循环播放 idle.mp4
+   refreshQuestions: 是否刷新问题列表（自然播完=true；手动停止=false，避免按钮闪烁）*/
+function switchToIdle(refreshQuestions) {{
+    if (refreshQuestions === undefined) refreshQuestions = true;
     var backVideo = document.getElementById('videoBack');
     var frontVideo = document.getElementById('videoFront');
     currentMode = 'idle';
+    updateStopButton();  // 隐藏"暂停回答"按钮
+    isPaused = false;    // 重置暂停态，下次回答从头开始
+    setStopButtonState(false);
     stopWaveAnimation();
 
-    // 移除按钮高亮 + 刷新问题列表
+    // 停止讲话音频并彻底解绑事件（从 talking/xunhuan 循环态切出时避免回调串扰）
+    var speakAudio = document.getElementById('speakAudio');
+    if (speakAudio) {{
+        speakAudio.onended = null;
+        speakAudio.pause();
+        try {{ speakAudio.currentTime = 0; }} catch (e) {{}}
+    }}
+    // 清理两个图层残留的视频事件（xunhuan 循环态可能挂在另一图层上）
+    ['videoBack', 'videoFront'].forEach(function(id) {{
+        var v = document.getElementById(id);
+        if (v) {{ v.onended = null; v.oncanplaythrough = null; }}
+    }});
+
+    // 移除按钮高亮 + 重置字幕（手动停止时不刷新问题列表，避免按钮闪烁）
     document.querySelectorAll('.q-btn').forEach(function(b) {{ b.classList.remove('active'); }});
     resetCaption();
-    refreshQuestionButtons();
+    if (refreshQuestions) refreshQuestionButtons();
 
-    backVideo.loop = true;
+    stopIdleLoop();
+    backVideo.loop = false;  // 不无缝循环，由 startIdleLoop 接管：播完停顿再重播
     backVideo.src = '/gradio_api/file={idle_video}';
     backVideo.load();
 
     backVideo.oncanplaythrough = function() {{
         // 先开始播放（此时 backVideo 还是透明状态）
         backVideo.play().catch(function(e){{}});
+
+        // 接管 idle 循环：播完随机停顿再重播
+        startIdleLoop(backVideo);
 
         // 等待首帧渲染后再切换图层
         var swap = function() {{
@@ -735,6 +870,52 @@ function stopWaveAnimation() {{
     if (waveOverlay) waveOverlay.classList.remove('active');
 }}
 
+/* 显示/隐藏"暂停回答"按钮（仅 talking 模式可见）*/
+function updateStopButton() {{
+    var stopBtn = document.getElementById('stopAnswerBtn');
+    if (!stopBtn) return;
+    if (currentMode === 'talking') {{
+        stopBtn.classList.add('visible');
+    }} else {{
+        stopBtn.classList.remove('visible');
+    }}
+}}
+
+/* 更新按钮暂停/继续外观（图标 + 文字）*/
+function setStopButtonState(paused) {{
+    var stopBtn = document.getElementById('stopAnswerBtn');
+    if (!stopBtn) return;
+    var textEl = stopBtn.querySelector('.btn-text');
+    if (paused) {{
+        stopBtn.classList.add('is-paused');
+        if (textEl) textEl.textContent = '继续回答';
+    }} else {{
+        stopBtn.classList.remove('is-paused');
+        if (textEl) textEl.textContent = '暂停回答';
+    }}
+}}
+
+/* 暂停/继续切换：同步控制当前 active 视频图层与配音，不切换模式，按钮始终可见 */
+var isPaused = false;
+function togglePauseAnswer() {{
+    if (currentMode !== 'talking') return;
+    var activeVideo = document.querySelector('.video-layer.active');
+    var speakAudio = document.getElementById('speakAudio');
+    if (!isPaused) {{
+        // 播放中 → 暂停（视频 + 配音同步停）
+        if (activeVideo) activeVideo.pause();
+        if (speakAudio) speakAudio.pause();
+        isPaused = true;
+        setStopButtonState(true);
+    }} else {{
+        // 暂停中 → 继续
+        if (activeVideo) activeVideo.play().catch(function (e) {{}});
+        if (speakAudio) speakAudio.play().catch(function (e) {{}});
+        isPaused = false;
+        setStopButtonState(false);
+    }}
+}}
+
 /* 显示答案字幕（分段交错渐显）*/
 function showCaption(question, answer) {{
     var caption = document.getElementById('answerCaption');
@@ -779,25 +960,40 @@ function resetCaption() {{
     if (btns.length >= {display_count}) {{
         refreshQuestionButtons();
 
-        // 预加载 talking.mp4 到浏览器缓存，后续切换瞬间就绪
-        var preloadVideo = document.createElement('video');
-        preloadVideo.preload = 'auto';
-        preloadVideo.style.display = 'none';
-        preloadVideo.src = '/gradio_api/file={talking_video}';
-        preloadVideo.load();
-        setTimeout(function() {{ document.body.contains(preloadVideo) && preloadVideo.remove(); }}, 3000);
+        // 初始 idle 视频接管为"播放-停顿-重播"循环（HTML 已去掉 loop）
+        var initFront = document.getElementById('videoFront');
+        if (initFront) {{
+            startIdleLoop(initFront);
+            // 视频可能已 autoplay 播完停住，重置并重播一次以启动循环
+            try {{ initFront.currentTime = 0; }} catch (e) {{}}
+            initFront.play().catch(function (e) {{}});
+        }}
+
+        // 预加载 talking.mp4 / xunhuan.mp4 到浏览器缓存，后续切换瞬间就绪（避免 talking→xunhuan 黑帧）
+        ['{talking_video}', '{xunhuan_video}'].forEach(function(src) {{
+            var preloadVideo = document.createElement('video');
+            preloadVideo.preload = 'auto';
+            preloadVideo.style.display = 'none';
+            preloadVideo.src = '/gradio_api/file=' + src;
+            preloadVideo.load();
+            setTimeout(function() {{ document.body.contains(preloadVideo) && preloadVideo.remove(); }}, 3000);
+        }});
     }} else {{
         setTimeout(initWhenReady, 150);
     }}
 }})();
 """.format(
     talking_video=TALKING_VIDEO,
+    xunhuan_video=XUNHUAN_VIDEO,
     idle_video=IDLE_VIDEO,
+    speak_audio_dir=SPEAK_AUDIO_DIR,
     wave_videos=config.WAVE_CONFIG["videos"],
     min_interval=config.WAVE_CONFIG["min_interval"],
     max_interval=config.WAVE_CONFIG["max_interval"],
     all_questions=ALL_QUESTIONS_JS,
-    display_count=DISPLAY_COUNT
+    display_count=DISPLAY_COUNT,
+    idle_pause_min=config.IDLE_PAUSE["min"],
+    idle_pause_max=config.IDLE_PAUSE["max"]
 )
 
 
@@ -815,10 +1011,10 @@ def create_kiosk_app():
         # 主内容区（全屏覆盖）
         with gr.Row(elem_classes="main-content"):
 
-            # ==================== 左侧浮动问题面板（3个按钮）====================
+            # ==================== 左侧浮动问题面板（4个按钮）====================
             with gr.Column(elem_classes=["question-panel", "panel-left"]):
                 gr.HTML(f'<div class="panel-title">{config.UI_CONFIG["left_title"]}</div>')
-                for i in range(3):
+                for i in range(4):
                     btn = gr.Button(
                         "正在加载问题",
                         elem_classes="q-btn",
@@ -835,10 +1031,10 @@ def create_kiosk_app():
                 # 双缓冲视频容器 + 挥手覆盖层 + 字幕条
                 gr.HTML(value=f'''
                 <div class="video-container">
-                    <video id="videoBack" class="video-layer inactive" autoplay loop muted playsinline>
+                    <video id="videoBack" class="video-layer inactive" autoplay muted playsinline>
                         <source src="/gradio_api/file={IDLE_VIDEO}" type="video/mp4">
                     </video>
-                    <video id="videoFront" class="video-layer active" autoplay loop muted playsinline>
+                    <video id="videoFront" class="video-layer active" autoplay muted playsinline>
                         <source src="/gradio_api/file={IDLE_VIDEO}" type="video/mp4">
                     </video>
                     <div class="top-identity">
@@ -852,6 +1048,8 @@ def create_kiosk_app():
                         </div>
                     </div>
                     <div id="waveOverlay" class="wave-overlay"></div>
+                    <!-- 讲话配音：talking 模式按问题 id 动态加载（videos/xq0X.mp3），切回 idle 时停止 -->
+                    <audio id="speakAudio" preload="auto"></audio>
                     <div id="loadingOverlay" class="loading-overlay hidden">
                         <div class="loading-spinner"></div>
                     </div>
@@ -860,13 +1058,19 @@ def create_kiosk_app():
                         <div id="captionAnswer" class="caption-answer">点击左右两侧问题，开启智慧电力探索之旅</div>
                     </div>
                     <div class="stage-line"></div>
+                    <!-- 暂停/继续回答按钮：仅 talking 模式可见，点击在暂停与继续间切换 -->
+                    <button id="stopAnswerBtn" class="stop-btn" type="button" onclick="togglePauseAnswer()">
+                        <span class="btn-icon icon-pause"></span>
+                        <span class="btn-icon icon-play"></span>
+                        <span class="btn-text">暂停回答</span>
+                    </button>
                 </div>
                 ''', elem_classes="video-html-wrapper")
 
-            # ==================== 右侧浮动问题面板（3个按钮）====================
+            # ==================== 右侧浮动问题面板（4个按钮）====================
             with gr.Column(elem_classes=["question-panel", "panel-right"]):
                 gr.HTML(f'<div class="panel-title">{config.UI_CONFIG["right_title"]}</div>')
-                for i in range(3):
+                for i in range(4):
                     btn = gr.Button(
                         "正在加载问题",
                         elem_classes="q-btn",
@@ -874,7 +1078,7 @@ def create_kiosk_app():
                     )
                     btn.click(
                         fn=None,
-                        js=f"() => {{ onQuestionClick({i + 3}); }}"
+                        js=f"() => {{ onQuestionClick({i + 4}); }}"
                     )
 
     return app
@@ -888,6 +1092,13 @@ def check_video_files():
         missing.append(f"待机视频: {IDLE_VIDEO}")
     if not os.path.exists(TALKING_VIDEO):
         missing.append(f"回答视频: {TALKING_VIDEO}")
+    if not os.path.exists(XUNHUAN_VIDEO):
+        missing.append(f"循环视频: {XUNHUAN_VIDEO}")
+    # 检查 8 段配音（文件名与问题 id 一致：xq01–xq08）
+    missing_speak = [f"xq{i:02d}" for i in range(1, 9)
+                     if not os.path.exists(os.path.join(SPEAK_AUDIO_DIR, f"xq{i:02d}.mp3"))]
+    if missing_speak:
+        missing.append(f"讲话配音缺失: {', '.join(missing_speak)}（应在 {SPEAK_AUDIO_DIR} 下）")
 
     # 检查挥手视频
     wave_videos = config.WAVE_CONFIG.get("videos", [])
@@ -921,8 +1132,10 @@ def main(port=None):
     print("🚀 数字人问答展示系统")
     print(f"📹 待机视频: {IDLE_VIDEO}")
     print(f"📹 回答视频: {TALKING_VIDEO}")
+    print(f"📹 循环视频: {XUNHUAN_VIDEO}")
+    print(f"🔊 讲话配音目录: {SPEAK_AUDIO_DIR}（xq01–xq08.mp3，按问题 id 加载）")
     print(f"👋 挥手动画: {'启用' if config.WAVE_CONFIG['enabled'] else '禁用'}")
-    print(f"📋 问题总数: {len(config.QUESTION_POOL)}（每次随机展示{DISPLAY_COUNT}个）")
+    print(f"📋 问题总数: {len(config.QUESTION_POOL)}（固定展示{DISPLAY_COUNT}个：左4常见问题 + 右4热点问答）")
     print(f"🌐 访问地址: http://localhost:{server_port}")
     print("="*50 + "\n")
 
