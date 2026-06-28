@@ -36,6 +36,12 @@ WAVE_CONFIG = {
     ]
 }
 
+# 视频图层交叉淡入时长（毫秒）。原 0.08s≈5 帧会导致两层半透明数字人帧叠加产生重影；
+# 压到极短（~30ms≈2 帧）后接近硬切，借助首帧就绪使重影窗口从 ~5 帧降到 ~1 帧。
+VIDEO_TRANSITION = {
+    "opacity_ms": 30,   # 双图层 opacity 交叉时长（ms）
+}
+
 # ============================================
 # 预设问题配置（初始显示用）
 # ============================================
@@ -187,4 +193,23 @@ SCREEN_CONFIG = {
 ANSWER_CONFIG = {
     "auto_return_idle": True,     # 是否自动回归待机
     "answer_duration": 30,        # 回答播放时长（秒），之后切回待机
+}
+
+# ============================================
+# 语音对话配置 (ASR → LLM → TTS)
+# ============================================
+
+VOICE_CONFIG = {
+    # 是否启用语音对话功能（需同时配置 DASHSCOPE_API_KEY 环境变量）
+    "enabled": True,
+    # LLM 系统提示词
+    "system_prompt": "你是一个友好的中文语音助手，回答要简洁、口语化，适合用语音播报。",
+    # ASR 模型
+    "asr_model": "paraformer-realtime-v2",
+    # TTS 模型
+    "tts_model": "qwen3-tts-instruct-flash",
+    # TTS 音色
+    "tts_voice": "Cherry",
+    # LLM 模型
+    "llm_model": "qwen-plus",
 }
