@@ -621,6 +621,8 @@ footer,
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
+    /* PTT：阻止触屏滚动/手势，保证 pointer 事件不被浏览器打断 */
+    touch-action: none;
     transition: opacity 0.32s ease, transform 0.32s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
 }
 
@@ -1154,6 +1156,7 @@ var voiceState = {{
     pcmNode: null,
     stream: null,
     pcmChunks: [],    // 录音缓冲区：Int16Array 数组
+    cancelled: false,  // PTT：滑出取消标记
     error: null
 }};
 
@@ -1169,12 +1172,12 @@ function setVoiceButtonState(state) {{
     btn.classList.remove('listening', 'processing');
     if (state === 'listening') {{
         btn.classList.add('listening');
-        text.textContent = '正在聆听...';
+        text.textContent = '松开发送';
     }} else if (state === 'processing') {{
         btn.classList.add('processing');
         text.textContent = '正在生成回复...';
     }} else {{
-        text.textContent = '语音对话';
+        text.textContent = '按住说话';
     }}
     voiceState.listening = (state === 'listening');
     voiceState.processing = (state === 'processing');
@@ -1316,6 +1319,17 @@ async function startVoiceCapture() {{
         source.connect(node);
         node.connect(ctx.destination);  // 保持节点活跃
 
+        // 取消竞态：若 await 期间用户已滑出取消（listening=false），立即回收刚申请的资源，避免麦指示灯常亮
+        if (!voiceState.listening) {{
+            try {{ node.disconnect(); }} catch(_e) {{}}
+            media.getTracks().forEach(function(t) {{ t.stop(); }});
+            ctx.close().catch(function(){{}});
+            voiceState.pcmNode = null;
+            voiceState.stream = null;
+            voiceState.audioCtx = null;
+            return true;
+        }}
+
         return true;
     }} catch(e) {{
         voiceState.error = String(e);
@@ -1391,6 +1405,29 @@ function stopVoiceCaptureAndRecognize() {{
     }});
 }}
 
+/* 取消录音：回收采集资源但不提交识别（按下后滑出按钮时调用） */
+function cancelVoiceCapture() {{
+    // 关闭 PCM 节点
+    if (voiceState.pcmNode) {{
+        try {{ voiceState.pcmNode.disconnect(); }} catch(e) {{}}
+        voiceState.pcmNode = null;
+    }}
+    // 停止麦克风
+    if (voiceState.stream) {{
+        voiceState.stream.getTracks().forEach(function(t) {{ t.stop(); }});
+        voiceState.stream = null;
+    }}
+    // 关闭采集 AudioContext
+    if (voiceState.audioCtx) {{
+        voiceState.audioCtx.close().catch(function(){{}});
+        voiceState.audioCtx = null;
+    }}
+    voiceState.listening = false;
+    voiceState.pcmChunks = [];   // 丢弃本次 PCM
+    setVoiceButtonState('idle');
+    showVoiceCaption('语音对话', '已取消');
+}}
+
 /* ============ Chat 流式对话（LLM + TTS）============ */
 
 function startChatStream(text) {{
@@ -1458,35 +1495,57 @@ function startChatStream(text) {{
     }};
 }}
 
-/* ============ 语音对话按钮点击处理 ============ */
+/* ============ 按住说话（Press-to-Talk）事件处理 ============ */
 
-function toggleVoiceChat() {{
-    // 正在录音中 → 停止录音 → 识别 → 对话
-    if (voiceState.listening) {{
-        setVoiceButtonState('processing');
-        showVoiceCaption('语音识别', '正在识别...');
-        stopVoiceCaptureAndRecognize();
-        return;
+/* 按下：开始录音 */
+function onVoicePressStart(e) {{
+    e.preventDefault();
+    // 释放触屏隐式指针捕获，使 pointerleave 在手指移出按钮时正常触发（滑出取消功能依赖此事件）
+    if (e.currentTarget.hasPointerCapture && e.currentTarget.hasPointerCapture(e.pointerId)) {{
+        e.currentTarget.releasePointerCapture(e.pointerId);
     }}
+    // processing（识别/生成中）锁定，忽略按下
+    if (voiceState.processing) return;
+    // 已在录音中（同一指头按住）忽略
+    if (voiceState.listening) return;
+
+    voiceState.cancelled = false;
 
     // 准备新一轮语音交互：若当前正在播放（预设问题 mp3 / 上一轮 TTS），先停止音频与视频
     if (currentMode === 'talking') {{
         // 中断正在进行的对话 WebSocket（若有）
         if (voiceState.chatWs) {{
-            try {{ voiceState.chatWs.close(); }} catch (e) {{}}
+            try {{ voiceState.chatWs.close(); }} catch (err) {{}}
             voiceState.chatWs = null;
         }}
         // switchToIdle 会停止 mp3 + TTS 音频队列 + talking 视频，并切回 idle 待机画面
         switchToIdle(false);
     }}
-    voiceState.processing = false;  // 清除上一轮处理态，允许开启新录音
 
-    // 开始录音
+    // 切聆听态 + 开始采集
     setVoiceButtonState('listening');
     showVoiceCaption('正在聆听...', '请说出您的问题...');
     startVoiceCapture().then(function(ok) {{
-        if (!ok) setVoiceButtonState('idle');
+        if (!ok) setVoiceButtonState('idle');   // 麦克风授权失败已提示
     }});
+}}
+
+/* 在按钮上松开：提交识别 */
+function onVoicePressEnd(e) {{
+    e.preventDefault();
+    if (!voiceState.listening) return;          // 已取消或未录音
+    if (voiceState.cancelled) return;           // 滑出取消路径已处理
+
+    setVoiceButtonState('processing');
+    showVoiceCaption('语音识别', '正在识别...');
+    stopVoiceCaptureAndRecognize();
+}}
+
+/* 滑出 / 被系统打断：立即取消，丢弃 PCM */
+function onVoicePressCancel(e) {{
+    if (!voiceState.listening) return;
+    voiceState.cancelled = true;
+    cancelVoiceCapture();
 }}
 
 /* 清理所有语音资源 */
@@ -1595,8 +1654,12 @@ def create_kiosk_app():
                         <span class="btn-icon icon-play"></span>
                         <span class="btn-text">暂停回答</span>
                     </button>
-                    <!-- 语音对话按钮：点击开始/停止录音 → ASR → LLM → TTS 实时对话 -->
-                    <button id="voiceChatBtn" class="voice-chat-btn" type="button" onclick="toggleVoiceChat()">
+                    <!-- 语音对话按钮：按住说话（PTT）按下录音 → 松开提交 → 滑出取消 → ASR → LLM → TTS -->
+                    <button id="voiceChatBtn" class="voice-chat-btn" type="button"
+                            onpointerdown="onVoicePressStart(event)"
+                            onpointerup="onVoicePressEnd(event)"
+                            onpointerleave="onVoicePressCancel(event)"
+                            onpointercancel="onVoicePressCancel(event)">
                         <span class="voice-icon">
                             <span class="icon-mic"></span>
                             <span class="icon-wave">
@@ -1604,7 +1667,7 @@ def create_kiosk_app():
                             </span>
                             <span class="icon-spinner"></span>
                         </span>
-                        <span id="voiceBtnText" class="btn-text">语音对话</span>
+                        <span id="voiceBtnText" class="btn-text">按住说话</span>
                     </button>
                 </div>
                 ''', elem_classes="video-html-wrapper")
