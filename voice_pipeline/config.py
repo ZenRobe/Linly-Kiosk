@@ -76,16 +76,16 @@ ASR_CONFIG = {
 # TTS 配置（Kokoro 语音合成）
 # ============================================
 TTS_CONFIG = {
-    "base_url": "http://10.141.180.150:32080/0e0b634ce9574695b8002feaaae97ce7/v1/audio/speech",
-    "app_id": "68e95ae3a218415a9b8be478f84fdbdc",
+    "base_url": "http://10.141.180.150:32080/52c101c8e3e546cc928a3c34ae943f4f/v1/audio/speech",
+    "app_id": "292434aa7f6041ae881ec2a83219872d",
     "auth_key": (
-        "da533ca50dfcfc2859397d7cb8712ff83209a2fd0c472c267e7d3ce571327d13"
-        "3424a685305c8e19bc517f0d9ce161563888f65d38932e8ec05bff64eab97879"
-        "c9e0c5722d481ef9ec936abe2fce512b2733559bd848dd4d0a9910c977a42cd5"
-        "c4131e190ebbb2212e7c98edb056d1777c4abe2070b9598040695e12ace549db"
-        "d479fc20f450446cb2a0a4bdc78387da"
+        "3e8d893a2a9b2dc04a5352282ab2beb908778956e4992e296b6f2e332913f126"
+        "6aa533bbf6f2126cd2b2f3a9bb22925c2a1d72277c9cfd179089d7be6019f4f02"
+        "4fb7e215521b6cf8bd4c453a537a4a39c2e187d2ab19ee91f6b52d870152299f"
+        "d404d114f753b9b5ba5b8536662fa24cd2b577ed326cc16b556076d640b6a56f"
+        "1809bd18eb1cdb8b1ac558f05e3755b"
     ),
-    "serving_id": "253",
+    "serving_id": "255",
     "model": "kokoro",
     "voice": "zm_009",  # 中文男声
 }
